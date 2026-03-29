@@ -6,7 +6,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useNavigation } from '@react-navigation/native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Star, Lock, GitBranch, Search, Check, Menu,
 } from '../lib/icons';
@@ -69,6 +69,7 @@ export default function ProjectsScreen() {
   const navigation = useNavigation<DrawerNavigationProp<any>>();
   const { repos, selectedRepo, selectRepo, refreshRepos, loading } = useRepo();
   const [query, setQuery] = useState('');
+  const insets = useSafeAreaInsets();
 
   const filtered = useMemo(
     () =>
@@ -90,7 +91,7 @@ export default function ProjectsScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
         <TouchableOpacity onPress={() => navigation.openDrawer()} style={styles.menuBtn}>
           <Menu size={20} color={colors.text} />
         </TouchableOpacity>
@@ -154,7 +155,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    paddingBottom: spacing.md,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,

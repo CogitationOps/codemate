@@ -2,6 +2,7 @@ import React from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DrawerContentScrollView, DrawerContentComponentProps } from '@react-navigation/drawer';
 import { usePathname, useRouter } from 'expo-router';
 import { MessageSquare, FolderGit2, GitBranch, Wifi, WifiOff } from '../lib/icons';
@@ -19,11 +20,12 @@ export function CustomDrawer(props: DrawerContentComponentProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { token, selectedRepo } = useRepo();
+  const insets = useSafeAreaInsets();
 
   return (
     <DrawerContentScrollView {...props} contentContainerStyle={styles.container}>
       {/* Brand */}
-      <View style={styles.brand}>
+      <View style={[styles.brand, { paddingTop: insets.top + spacing.lg }]}>
         <View style={styles.brandIcon}>
           <GitBranch size={18} color={colors.accent} />
         </View>
@@ -92,7 +94,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xxl,
     paddingBottom: spacing.lg,
   },
   brandIcon: {

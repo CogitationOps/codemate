@@ -5,7 +5,7 @@ import {
 import { useNavigation } from 'expo-router';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { GitBranch, Menu, Trash2 } from '../lib/icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessageList } from '../components/MessageList';
 import { ChatInput } from '../components/ChatInput';
 import { SuggestionChips } from '../components/SuggestionChips';
@@ -17,11 +17,12 @@ export default function ChatScreen() {
   const navigation = useNavigation<DrawerNavigationProp<any>>();
   const { messages, isStreaming, sendMessage, clearChat } = useChat();
   const { selectedRepo } = useRepo();
+  const insets = useSafeAreaInsets();
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       {/* Custom header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
         <TouchableOpacity onPress={() => navigation.openDrawer()} style={styles.headerBtn}>
           <Menu size={20} color={colors.text} />
         </TouchableOpacity>
@@ -74,7 +75,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    paddingBottom: spacing.md,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
