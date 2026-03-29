@@ -17,13 +17,35 @@ export async function POST(req: Request) {
     const body = await req.json();
     const input = parseAnalyzeRequest(body);
 
-    const repo = parseRepoRef(input.repo, input.branch);
-    const repoId = repo.owner + "/" + repo.repo;
-    const repoVersion = await getLatestCommitSha(repo);
+    let repoUrl = input.repo;
+    let repoVersion = "";
+    let repoRef;
+
+    if (input.workspaceId) {
+      const { getWorkspace } = await import("@/backend/services/workspace-service");
+      const workspace = await getWorkspace(input.workspaceId);
+      if (!workspace) {
+        throw new Error("Workspace not found");
+      }
+      if (workspace.status !== "ready") {
+        return NextResponse.json(
+          { error: "Workspace is still indexing. Please wait." },
+          { status: 202 }
+        );
+      }
+      repoUrl = workspace.repoUrl;
+      repoVersion = workspace.currentVersion;
+      repoRef = parseRepoRef(repoUrl);
+    } else {
+      repoRef = parseRepoRef(repoUrl, input.branch);
+      repoVersion = await getLatestCommitSha(repoRef);
+    }
+
+    const repoId = repoRef.owner + "/" + repoRef.repo;
 
     const planner = await runPlannerAgent(input.query);
     const search = await runSearchAgent({
-      repo,
+      repo: repoRef,
       repoId,
       repoVersion,
       query: input.query,
@@ -31,7 +53,7 @@ export async function POST(req: Request) {
       limit: input.searchLimit,
     });
     const context = await runContextBuilder({
-      repo,
+      repo: repoRef,
       repoVersion,
       search,
       limit: input.contextLimit,

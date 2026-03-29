@@ -1,6 +1,32 @@
 export const INTENTS = ["bug_search", "feature_search", "refactor", "explain"] as const;
 export type Intent = (typeof INTENTS)[number];
 
+export type Workspace = {
+  id: string;
+  name: string;
+  repoUrl: string;
+  repoId: string;
+  currentVersion: string; // Latest Commit SHA
+  status: "indexing" | "ready" | "error";
+  createdAt: number;
+};
+
+export type CodeChunk = {
+  id: string;
+  workspaceId: string;
+  version: string;
+  filePath: string;
+  content: string;
+  embedding?: number[];
+};
+
+export type CommitInsight = {
+  workspaceId: string;
+  commitId: string;
+  risk: "low" | "medium" | "high";
+  summary: string;
+};
+
 export type PlannerOutput = {
   intent: Intent;
   keywords: string[];
@@ -35,6 +61,7 @@ export type AnalyzerOutput = {
 };
 
 export type AnalyzeRequest = {
+  workspaceId?: string;
   repo: string;
   query: string;
   branch?: string;

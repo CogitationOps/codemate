@@ -28,16 +28,8 @@ import {
 } from "@/components/ui/sidebar";
 import { useChat } from "@ai-sdk/react";
 import { Bot, RotateCcw, WandSparkles } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { UIMessage } from "ai";
-
-type ThreadItem = {
-  id: string;
-  title: string;
-  createdAt?: number;
-  updatedAt?: number;
-  lastUserMessage?: string;
-};
 
 function getMessageText(parts: Array<{ type: string; text?: string }>) {
   return parts
@@ -88,90 +80,41 @@ function toAssistantActivityParts(message: UIMessage): Array<{ label: string; pa
 }
 
 export function ChatShell() {
-  const [threads, setThreads] = useState<ThreadItem[]>([]);
-  const [activeThreadId, setActiveThreadId] = useState<string>("chat-default");
-
-  const { messages, sendMessage, status, stop, setMessages } = useChat({
-    id: activeThreadId,
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("last_active_workspace") || "";
+    }
+    return "";
   });
 
-  const canSubmit = status !== "submitted" && status !== "streaming";
+  const { messages, sendMessage, status, stop, setMessages } = useChat({
+    id: activeWorkspaceId || "no-workspace",
+    // @ts-expect-error - body is supported by @ai-sdk/react but showing type conflict locally
+    body: {
+      workspaceId: activeWorkspaceId,
+    },
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const response = await fetch("/api/chats", { method: "GET" });
-      if (!response.ok) {
-        return;
-      }
-      const json = (await response.json()) as { threads?: ThreadItem[] };
-      const loaded = Array.isArray(json.threads) ? json.threads : [];
-      if (cancelled) {
-        return;
-      }
+  const canSubmit = status !== "submitted" && status !== "streaming" && !!activeWorkspaceId;
 
-      setThreads(loaded);
-      const firstThread = loaded[0];
-      if (firstThread) {
-        setActiveThreadId(firstThread.id);
-      } else {
-        const newId = crypto.randomUUID();
-        setThreads([{ id: newId, title: "New Chat" }]);
-        setActiveThreadId(newId);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!activeThreadId) {
-      return;
-    }
-    let cancelled = false;
-
-    (async () => {
-      const response = await fetch("/api/chats/" + encodeURIComponent(activeThreadId), {
-        method: "GET",
-      });
-      if (!response.ok) {
-        if (!cancelled) {
-          setMessages([]);
-        }
-        return;
-      }
-      const json = (await response.json()) as { messages?: UIMessage[] };
-      if (!cancelled) {
-        setMessages(Array.isArray(json.messages) ? json.messages : []);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeThreadId, setMessages]);
+  const handleWorkspaceSelect = (id: string) => {
+    setActiveWorkspaceId(id);
+    localStorage.setItem("last_active_workspace", id);
+  };
 
   const greeting = useMemo(
     () =>
-      activeThreadId && activeThreadId !== "chat-default"
-        ? "Help me convert this Next.js app into an installable PWA."
-        : "What should we build next?",
-    [activeThreadId]
+      activeWorkspaceId
+        ? "Ask anything about this repository."
+        : "Create or select a workspace to get started.",
+    [activeWorkspaceId]
   );
 
   return (
     <SidebarProvider defaultOpen>
       <AppSidebar
-        activeThreadId={activeThreadId}
-        onNewChat={() => {
-          const newId = crypto.randomUUID();
-          setMessages([]);
-          setThreads((prev) => [{ id: newId, title: "New Chat" }, ...prev]);
-          setActiveThreadId(newId);
-        }}
-        onSelectThread={setActiveThreadId}
-        threads={threads}
+        activeWorkspaceId={activeWorkspaceId}
+        onSelectWorkspace={handleWorkspaceSelect}
       />
 
       <SidebarInset className="bg-background">
@@ -212,8 +155,8 @@ export function ChatShell() {
                       {message.role === "assistant" ? (
                         <div className="space-y-2">
                           {content ? <MessageResponse>{content}</MessageResponse> : null}
-                          {activities.map((activity) => (
-                            <details className="rounded border p-2 text-xs" key={activity.label + activity.payload}>
+                          {activities.map((activity, idx) => (
+                            <details className="rounded border p-2 text-xs" key={`${activity.label}-${idx}`}>
                               <summary className="cursor-pointer font-medium">{activity.label}</summary>
                               <pre className="mt-2 whitespace-pre-wrap text-muted-foreground">{activity.payload}</pre>
                             </details>
@@ -236,16 +179,6 @@ export function ChatShell() {
                 onSubmit={async ({ text }) => {
                   const clean = text.trim();
                   if (!clean || !canSubmit) return;
-                  setThreads((prev) => {
-                    const current = prev.find((thread) => thread.id === activeThreadId);
-                    const title = clean.length > 56 ? clean.slice(0, 56) + "..." : clean;
-                    if (!current) {
-                      return [{ id: activeThreadId, title }, ...prev];
-                    }
-                    return prev.map((thread) =>
-                      thread.id === activeThreadId && thread.title === "New Chat" ? { ...thread, title } : thread
-                    );
-                  });
                   await sendMessage({ text: clean });
                 }}
               >

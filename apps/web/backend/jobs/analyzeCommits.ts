@@ -1,66 +1,57 @@
 import { getCommitDiff, parseRepoRef } from "../services/github";
+import { generateStructuredOrFallback } from "../services/llm";
 
 export type CommitRisk = "low" | "medium" | "high";
 
 export type CommitAnalysis = {
   commitId: string;
+  workspaceId: string;
   risk: CommitRisk;
   summary: string;
 };
 
-function scoreCommitRisk(files: Array<{ filename: string; additions: number; deletions: number; patch?: string }>): {
-  risk: CommitRisk;
-  reasons: string[];
-} {
-  let score = 0;
-  const reasons: string[] = [];
-
-  const totalChanges = files.reduce((acc, file) => acc + file.additions + file.deletions, 0);
-  if (totalChanges > 600) {
-    score += 3;
-    reasons.push("Large diff size");
-  } else if (totalChanges > 200) {
-    score += 2;
-    reasons.push("Moderate diff size");
-  }
-
-  const criticalTouches = files.filter((file) =>
-    /(auth|payment|billing|permission|security|migration|schema)/i.test(file.filename)
-  );
-  if (criticalTouches.length > 0) {
-    score += 2;
-    reasons.push("Touches high-risk modules");
-  }
-
-  const likelyBreaking = files.filter((file) => /(interface|type|config|env|docker|workflow)/i.test(file.filename));
-  if (likelyBreaking.length > 0) {
-    score += 1;
-    reasons.push("Touches shared contracts or configuration");
-  }
-
-  const riskyPatch = files.some((file) => /(throw new|TODO|FIXME|@ts-ignore)/i.test(file.patch ?? ""));
-  if (riskyPatch) {
-    score += 1;
-    reasons.push("Patch contains risky markers");
-  }
-
-  if (score >= 5) {
-    return { risk: "high", reasons };
-  }
-  if (score >= 3) {
-    return { risk: "medium", reasons };
-  }
-  return { risk: "low", reasons: reasons.length > 0 ? reasons : ["Small isolated change"] };
-}
-
-export async function analyzeCommit(params: { repo: string; branch?: string; commitId: string }): Promise<CommitAnalysis> {
+export async function analyzeCommit(params: {
+  repo: string;
+  workspaceId: string;
+  branch?: string;
+  commitId: string;
+}): Promise<CommitAnalysis> {
   const repoRef = parseRepoRef(params.repo, params.branch);
   const diff = await getCommitDiff(repoRef, params.commitId);
-  const scored = scoreCommitRisk(diff.files);
 
-  return {
+  // Combine heuristic with LLM
+  const filesChanged = diff.files.length;
+  const systemPrompt = `You are a senior security engineer. Analyze the following commit diff and determine the risk level (low, medium, high) and provide a concise summary. Return strict JSON only.`;
+  
+  const diffBrief = diff.files
+    .slice(0, 10)
+    .map((f) => `- ${f.filename} (+${f.additions}, -${f.deletions})`)
+    .join("\n");
+
+  const fallback: CommitAnalysis = {
     commitId: diff.sha,
-    risk: scored.risk,
-    summary: "Changed " + diff.files.length + " files. " + scored.reasons.join("; "),
+    workspaceId: params.workspaceId,
+    risk: filesChanged > 50 ? "high" : filesChanged > 10 ? "medium" : "low",
+    summary: `Changed ${filesChanged} files across repo.`,
   };
+
+  const result = await generateStructuredOrFallback<CommitAnalysis>({
+    system: systemPrompt,
+    prompt: `Analyze this commit:\n${diffBrief}\n\nTotal files: ${filesChanged}`,
+    fallback,
+    parser: (val: unknown) => {
+      const v = val as Record<string, unknown>;
+      if (typeof v?.risk === "string" && typeof v?.summary === "string") {
+        return {
+          commitId: diff.sha,
+          workspaceId: params.workspaceId,
+          risk: v.risk as CommitRisk,
+          summary: v.summary,
+        };
+      }
+      return null;
+    },
+  });
+
+  return result;
 }
