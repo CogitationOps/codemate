@@ -1,4 +1,9 @@
-import { ChatShell } from "@/components/chat-shell";
+import dynamic from "next/dynamic";
+
+const ChatShell = dynamic(
+  () => import("@/components/chat-shell").then((m) => ({ default: m.ChatShell })),
+  { ssr: false }
+);
 
 export default function Home() {
   return <ChatShell />;
