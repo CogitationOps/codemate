@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useChat } from "@ai-sdk/react";
 import { Bot, RotateCcw, WandSparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { UIMessage } from "ai";
 
 function getMessageText(parts: Array<{ type: string; text?: string }>) {
@@ -80,12 +80,17 @@ function toAssistantActivityParts(message: UIMessage): Array<{ label: string; pa
 }
 
 export function ChatShell() {
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("last_active_workspace") || "";
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>("");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("last_active_workspace");
+    if (saved) {
+      // Defer to avoid "cascading renders" lint error while still hydrating smoothly
+      queueMicrotask(() => {
+        setActiveWorkspaceId(saved);
+      });
     }
-    return "";
-  });
+  }, []);
 
   const { messages, sendMessage, status, stop, setMessages } = useChat({
     id: activeWorkspaceId || "no-workspace",

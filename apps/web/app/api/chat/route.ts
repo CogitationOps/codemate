@@ -111,14 +111,15 @@ const repoQuerySchema = jsonSchema<RepoQueryInput>({
   additionalProperties: false,
 });
 
-const commitSchema = jsonSchema<{ repo: string; commitId: string; branch?: string }>({
+const commitSchema = jsonSchema<{ repo: string; commitId: string; workspaceId: string; branch?: string }>({
   type: "object",
   properties: {
     repo: { type: "string", description: "Repository as owner/repo or GitHub URL" },
     commitId: { type: "string", description: "Commit SHA to analyze" },
+    workspaceId: { type: "string", description: "Workspace ID for context" },
     branch: { type: "string", description: "Optional branch name" },
   },
-  required: ["repo", "commitId"],
+  required: ["repo", "commitId", "workspaceId"],
   additionalProperties: false,
 });
 
@@ -220,12 +221,14 @@ const tools = {
       repo,
       branch,
       commitId,
+      workspaceId,
     }: {
       repo: string;
       branch?: string;
       commitId: string;
+      workspaceId: string;
     }) => {
-      return await analyzeCommit({ repo, branch, commitId });
+      return await analyzeCommit({ repo, branch, commitId, workspaceId });
     },
   }),
 } satisfies ToolSet;

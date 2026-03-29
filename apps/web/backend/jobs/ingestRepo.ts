@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { CodeChunk, generateEmbeddings, upsertCodeChunks } from "../services/embeddings";
 import {
   getChangedFilesBetween,
@@ -36,8 +34,12 @@ function chunkContent(filePath: string, content: string): Array<{ idSuffix: stri
   return chunks;
 }
 
-function stableChunkId(repoId: string, version: string, suffix: string): string {
-  return createHash("sha256").update(repoId + ":" + version + ":" + suffix).digest("hex");
+async function stableChunkId(repoId: string, version: string, suffix: string): Promise<string> {
+  const msg = repoId + ":" + version + ":" + suffix;
+  const data = new TextEncoder().encode(msg);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export async function ingestRepository(input: IngestInput): Promise<{
@@ -87,7 +89,7 @@ export async function ingestRepository(input: IngestInput): Promise<{
         }
         const chunk = fileChunks[i];
         chunks.push({
-          id: stableChunkId(repoId, version, chunk.idSuffix),
+          id: await stableChunkId(repoId, version, chunk.idSuffix),
           repoId,
           version,
           filePath: path,
