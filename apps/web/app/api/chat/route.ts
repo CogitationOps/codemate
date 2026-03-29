@@ -19,6 +19,7 @@ import { saveChatConversation } from "@/backend/services/chat-store";
 import { upsertRelevantContextVectors } from "@/backend/services/embeddings";
 import { getLatestCommitSha, parseRepoRef } from "@/backend/services/github";
 import { parseAnalyzeRequest, type AnalyzeRequest } from "@/backend/types";
+import { getWorkspace } from "@/backend/services/workspace-service";
 
 export const maxDuration = 30;
 export const runtime = "edge";
@@ -237,9 +238,21 @@ export async function POST(req: Request) {
   const body = (await req.json()) as {
     id?: string;
     messages?: UIMessage[];
+    workspaceId?: string;
   };
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const chatId = typeof body.id === "string" && body.id.trim().length > 0 ? body.id : crypto.randomUUID();
+  const workspaceId = body.workspaceId;
+
+  let systemPrompt = "You are Codemate, a production-grade repository analysis assistant. Use tools for repository-specific claims. Do not guess file contents. Keep answers concise and action-oriented.";
+
+  if (workspaceId) {
+    const ws = await getWorkspace(workspaceId);
+    if (ws) {
+      systemPrompt += `\n\nYou are currently helping in the workspace "${ws.name}" for the repository ${ws.repoUrl}. 
+      When the user asks about this repository, automatically use the "repo" parameter as "${ws.repoUrl}" in tool calls unless they specify otherwise.`;
+    }
+  }
 
   if (!process.env.OPENAI_API_KEY && !process.env.AI_GATEWAY_API_KEY) {
     return Response.json(
@@ -252,11 +265,9 @@ export async function POST(req: Request) {
   }
 
   const result = streamText({
-    system:
-      "You are Codemate, a production-grade repository analysis assistant. Use tools for repository-specific claims. " +
-      "Do not guess file contents. Keep answers concise and action-oriented.",
+    system: systemPrompt,
     messages: await convertToModelMessages(messages, { tools }),
-    model: openai("gpt-4.1-mini"),
+    model: openai("gpt-4o-mini"),
     tools,
     stopWhen: stepCountIs(6),
   });

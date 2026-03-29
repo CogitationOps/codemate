@@ -100,7 +100,7 @@ export function ChatShell() {
     },
   });
 
-  const canSubmit = status !== "submitted" && status !== "streaming" && !!activeWorkspaceId;
+  const canSubmit = status !== "submitted" && status !== "streaming";
 
   const handleWorkspaceSelect = (id: string) => {
     setActiveWorkspaceId(id);
@@ -184,11 +184,15 @@ export function ChatShell() {
                 onSubmit={async ({ text }) => {
                   const clean = text.trim();
                   if (!clean || !canSubmit) return;
+                  if (!activeWorkspaceId) {
+                    // Logic to prompt user to select/create a workspace
+                    return;
+                  }
                   await sendMessage({ text: clean });
                 }}
               >
                 <PromptInputBody>
-                  <PromptInputTextarea placeholder="Ask anything about your codebase..." />
+                  <PromptInputTextarea placeholder={activeWorkspaceId ? "Ask anything about your codebase..." : "Select a workspace to start chatting..."} />
                 </PromptInputBody>
                 <PromptInputFooter>
                   <PromptInputTools>
