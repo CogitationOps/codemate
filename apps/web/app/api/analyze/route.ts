@@ -5,6 +5,7 @@ import { runContextBuilder } from "@/backend/agents/context";
 import { formatAgentResponse } from "@/backend/agents/formatter";
 import { runPlannerAgent } from "@/backend/agents/planner";
 import { runSearchAgent } from "@/backend/agents/search";
+import { upsertRelevantContextVectors } from "@/backend/services/embeddings";
 import { getLatestCommitSha, parseRepoRef } from "@/backend/services/github";
 import { parseAnalyzeRequest } from "@/backend/types";
 
@@ -39,6 +40,16 @@ export async function POST(req: Request) {
       query: input.query,
       context,
     });
+
+    await upsertRelevantContextVectors({
+      repoId,
+      version: repoVersion,
+      files: context.relevantFiles.map((file) => ({
+        path: file.path,
+        content: file.content,
+      })),
+    }).catch(() => undefined);
+
     const formatted = formatAgentResponse({
       query: input.query,
       planner,

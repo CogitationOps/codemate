@@ -28,13 +28,16 @@ import {
 } from "@/components/ui/sidebar";
 import { useChat } from "@ai-sdk/react";
 import { Bot, RotateCcw, WandSparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { UIMessage } from "ai";
 
-const defaultThreads = [
-  { id: "thread-1", title: "Build PWA shell" },
-  { id: "thread-2", title: "Landing page ideas" },
-  { id: "thread-3", title: "API schema cleanup" },
-];
+type ThreadItem = {
+  id: string;
+  title: string;
+  createdAt?: number;
+  updatedAt?: number;
+  lastUserMessage?: string;
+};
 
 function getMessageText(parts: Array<{ type: string; text?: string }>) {
   return parts
@@ -43,16 +46,115 @@ function getMessageText(parts: Array<{ type: string; text?: string }>) {
     .join("\n");
 }
 
-export function ChatShell() {
-  const [activeThreadId, setActiveThreadId] = useState(defaultThreads[0].id);
+function toAssistantActivityParts(message: UIMessage): Array<{ label: string; payload: string }> {
+  const activities: Array<{ label: string; payload: string }> = [];
 
-  const { messages, sendMessage, status, stop, setMessages } = useChat();
+  for (const part of message.parts as Array<Record<string, unknown>>) {
+    if (!part || typeof part !== "object" || typeof part.type !== "string") {
+      continue;
+    }
+
+    if (part.type === "step-start") {
+      activities.push({ label: "Step", payload: "Starting next reasoning/tool step" });
+      continue;
+    }
+
+    if (part.type === "reasoning") {
+      const text = typeof part.text === "string" ? part.text : "";
+      if (text) {
+        activities.push({ label: "Thinking", payload: text });
+      }
+      continue;
+    }
+
+    if (part.type.startsWith("tool-")) {
+      const toolName = part.type.slice("tool-".length);
+      const state = typeof part.state === "string" ? part.state : "unknown";
+      const toolPayload = JSON.stringify(
+        {
+          state,
+          input: part.input,
+          output: part.output,
+          errorText: part.errorText,
+        },
+        null,
+        2
+      );
+      activities.push({ label: "Tool: " + toolName, payload: toolPayload });
+    }
+  }
+
+  return activities;
+}
+
+export function ChatShell() {
+  const [threads, setThreads] = useState<ThreadItem[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string>("chat-default");
+
+  const { messages, sendMessage, status, stop, setMessages } = useChat({
+    id: activeThreadId,
+  });
 
   const canSubmit = status !== "submitted" && status !== "streaming";
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const response = await fetch("/api/chats", { method: "GET" });
+      if (!response.ok) {
+        return;
+      }
+      const json = (await response.json()) as { threads?: ThreadItem[] };
+      const loaded = Array.isArray(json.threads) ? json.threads : [];
+      if (cancelled) {
+        return;
+      }
+
+      setThreads(loaded);
+      const firstThread = loaded[0];
+      if (firstThread) {
+        setActiveThreadId(firstThread.id);
+      } else {
+        const newId = crypto.randomUUID();
+        setThreads([{ id: newId, title: "New Chat" }]);
+        setActiveThreadId(newId);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeThreadId) {
+      return;
+    }
+    let cancelled = false;
+
+    (async () => {
+      const response = await fetch("/api/chats/" + encodeURIComponent(activeThreadId), {
+        method: "GET",
+      });
+      if (!response.ok) {
+        if (!cancelled) {
+          setMessages([]);
+        }
+        return;
+      }
+      const json = (await response.json()) as { messages?: UIMessage[] };
+      if (!cancelled) {
+        setMessages(Array.isArray(json.messages) ? json.messages : []);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeThreadId, setMessages]);
+
   const greeting = useMemo(
     () =>
-      activeThreadId === "thread-1"
+      activeThreadId && activeThreadId !== "chat-default"
         ? "Help me convert this Next.js app into an installable PWA."
         : "What should we build next?",
     [activeThreadId]
@@ -63,11 +165,13 @@ export function ChatShell() {
       <AppSidebar
         activeThreadId={activeThreadId}
         onNewChat={() => {
+          const newId = crypto.randomUUID();
           setMessages([]);
-          setActiveThreadId(`thread-${Date.now()}`);
+          setThreads((prev) => [{ id: newId, title: "New Chat" }, ...prev]);
+          setActiveThreadId(newId);
         }}
         onSelectThread={setActiveThreadId}
-        threads={defaultThreads}
+        threads={threads}
       />
 
       <SidebarInset className="bg-background">
@@ -99,14 +203,22 @@ export function ChatShell() {
               ) : null}
 
               {messages.map((message) => {
-                const content = getMessageText(message.parts);
-                if (!content) return null;
+                const content = getMessageText(message.parts as Array<{ type: string; text?: string }>);
+                const activities = toAssistantActivityParts(message);
 
                 return (
                   <Message from={message.role} key={message.id}>
                     <MessageContent>
                       {message.role === "assistant" ? (
-                        <MessageResponse>{content}</MessageResponse>
+                        <div className="space-y-2">
+                          {content ? <MessageResponse>{content}</MessageResponse> : null}
+                          {activities.map((activity) => (
+                            <details className="rounded border p-2 text-xs" key={activity.label + activity.payload}>
+                              <summary className="cursor-pointer font-medium">{activity.label}</summary>
+                              <pre className="mt-2 whitespace-pre-wrap text-muted-foreground">{activity.payload}</pre>
+                            </details>
+                          ))}
+                        </div>
                       ) : (
                         <p className="whitespace-pre-wrap">{content}</p>
                       )}
@@ -124,6 +236,16 @@ export function ChatShell() {
                 onSubmit={async ({ text }) => {
                   const clean = text.trim();
                   if (!clean || !canSubmit) return;
+                  setThreads((prev) => {
+                    const current = prev.find((thread) => thread.id === activeThreadId);
+                    const title = clean.length > 56 ? clean.slice(0, 56) + "..." : clean;
+                    if (!current) {
+                      return [{ id: activeThreadId, title }, ...prev];
+                    }
+                    return prev.map((thread) =>
+                      thread.id === activeThreadId && thread.title === "New Chat" ? { ...thread, title } : thread
+                    );
+                  });
                   await sendMessage({ text: clean });
                 }}
               >

@@ -15,6 +15,8 @@ import { formatAgentResponse } from "@/backend/agents/formatter";
 import { runPlannerAgent } from "@/backend/agents/planner";
 import { runSearchAgent } from "@/backend/agents/search";
 import { analyzeCommit } from "@/backend/jobs/analyzeCommits";
+import { saveChatConversation } from "@/backend/services/chat-store";
+import { upsertRelevantContextVectors } from "@/backend/services/embeddings";
 import { getLatestCommitSha, parseRepoRef } from "@/backend/services/github";
 import { parseAnalyzeRequest, type AnalyzeRequest } from "@/backend/types";
 
@@ -64,6 +66,12 @@ async function runPipeline(input: RepoQueryInput) {
     query: normalized.query,
     context,
   });
+  await upsertRelevantContextVectors({
+    repoId,
+    version,
+    files: context.relevantFiles.map((file) => ({ path: file.path, content: file.content })),
+  }).catch(() => undefined);
+
   const formatted = formatAgentResponse({
     query: normalized.query,
     planner,
@@ -223,7 +231,12 @@ const tools = {
 } satisfies ToolSet;
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  const body = (await req.json()) as {
+    id?: string;
+    messages?: UIMessage[];
+  };
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const chatId = typeof body.id === "string" && body.id.trim().length > 0 ? body.id : crypto.randomUUID();
 
   if (!process.env.OPENAI_API_KEY && !process.env.AI_GATEWAY_API_KEY) {
     return Response.json(
@@ -247,5 +260,8 @@ export async function POST(req: Request) {
 
   return result.toUIMessageStreamResponse({
     originalMessages: messages,
+    onFinish: async ({ messages: updatedMessages }) => {
+      await saveChatConversation(chatId, updatedMessages);
+    },
   });
 }

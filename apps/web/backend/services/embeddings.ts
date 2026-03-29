@@ -195,3 +195,67 @@ export async function queryVersionedVectors(params: EmbeddingQuery): Promise<Sea
 
   return hits;
 }
+
+export async function upsertRelevantContextVectors(params: {
+  repoId: string;
+  version: string;
+  files: Array<{ path: string; content: string }>;
+}): Promise<void> {
+  ensureVersion(params.version);
+  if (params.files.length === 0) {
+    return;
+  }
+
+  const chunks: Array<{ id: string; filePath: string; text: string }> = [];
+
+  for (const file of params.files) {
+    const lines = file.content.split("\n");
+    const blockSize = 90;
+    for (let i = 0; i < lines.length; i += blockSize) {
+      const text = lines
+        .slice(i, i + blockSize)
+        .join("\n")
+        .trim()
+        .slice(0, 3000);
+      if (!text) {
+        continue;
+      }
+      const rawId =
+        params.repoId + ":" + params.version + ":" + file.path + ":" + String(i + 1);
+      const id = rawId.replace(/[^a-zA-Z0-9:_-]/g, "_").slice(0, 220);
+      chunks.push({
+        id,
+        filePath: file.path,
+        text,
+      });
+    }
+  }
+
+  if (chunks.length === 0) {
+    return;
+  }
+
+  const vectors = await generateEmbeddings(chunks.map((chunk) => chunk.text));
+  if (vectors.length === 0) {
+    return;
+  }
+
+  const payload: CodeChunk[] = [];
+  for (let i = 0; i < chunks.length; i += 1) {
+    const vector = vectors[i];
+    if (!vector) {
+      continue;
+    }
+    const chunk = chunks[i];
+    payload.push({
+      id: chunk.id,
+      repoId: params.repoId,
+      version: params.version,
+      filePath: chunk.filePath,
+      content: chunk.text,
+      embedding: vector,
+    });
+  }
+
+  await upsertCodeChunks(payload);
+}
