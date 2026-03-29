@@ -38,8 +38,8 @@ function getMessageText(parts: Array<{ type: string; text?: string }>) {
     .join("\n");
 }
 
-function toAssistantActivityParts(message: UIMessage): Array<{ label: string; payload: string }> {
-  const activities: Array<{ label: string; payload: string }> = [];
+function toAssistantActivityParts(message: UIMessage): Array<{ label: string; payload: string; type: "reasoning" | "tool" }> {
+  const activities: Array<{ label: string; payload: string; type: "reasoning" | "tool" }> = [];
 
   for (const part of message.parts as Array<Record<string, unknown>>) {
     if (!part || typeof part !== "object" || typeof part.type !== "string") {
@@ -47,14 +47,13 @@ function toAssistantActivityParts(message: UIMessage): Array<{ label: string; pa
     }
 
     if (part.type === "step-start") {
-      activities.push({ label: "Step", payload: "Starting next reasoning/tool step" });
       continue;
     }
 
     if (part.type === "reasoning") {
       const text = typeof part.text === "string" ? part.text : "";
       if (text) {
-        activities.push({ label: "Thinking", payload: text });
+        activities.push({ label: "Reasoning", payload: text, type: "reasoning" });
       }
       continue;
     }
@@ -62,17 +61,24 @@ function toAssistantActivityParts(message: UIMessage): Array<{ label: string; pa
     if (part.type.startsWith("tool-")) {
       const toolName = part.type.slice("tool-".length);
       const state = typeof part.state === "string" ? part.state : "unknown";
-      const toolPayload = JSON.stringify(
-        {
-          state,
-          input: part.input,
-          output: part.output,
-          errorText: part.errorText,
-        },
-        null,
-        2
-      );
-      activities.push({ label: "Tool: " + toolName, payload: toolPayload });
+      
+      let displayPayload = "";
+      if (typeof part.input === "object") {
+        displayPayload += `Input: ${JSON.stringify(part.input, null, 2)}\n`;
+      }
+      if (state === "result" && typeof part.output === "object") {
+        displayPayload += `Output: ${JSON.stringify(part.output, null, 2)}`;
+      } else if (state === "error") {
+        displayPayload += `Error: ${part.errorText}`;
+      } else {
+        displayPayload += `Status: ${state}`;
+      }
+
+      activities.push({ 
+        label: "Tool: " + toolName.replace(/_/g, " "), 
+        payload: displayPayload,
+        type: "tool"
+      });
     }
   }
 
@@ -160,12 +166,24 @@ export function ChatShell() {
                       {message.role === "assistant" ? (
                         <div className="space-y-2">
                           {content ? <MessageResponse>{content}</MessageResponse> : null}
-                          {activities.map((activity, idx) => (
-                            <details className="rounded border p-2 text-xs" key={`${activity.label}-${idx}`}>
-                              <summary className="cursor-pointer font-medium">{activity.label}</summary>
-                              <pre className="mt-2 whitespace-pre-wrap text-muted-foreground">{activity.payload}</pre>
-                            </details>
-                          ))}
+                          {activities.length > 0 && (
+                            <div className="mt-4 space-y-2 border-l-2 border-primary/20 pl-4">
+                              {activities.map((activity, idx) => (
+                                <details className="group rounded-lg border bg-muted/50 p-2 text-xs transition-colors hover:bg-muted" key={`${activity.label}-${idx}`}>
+                                  <summary className="flex cursor-pointer items-center gap-2 font-medium">
+                                    <div className={`size-1.5 rounded-full ${activity.type === "reasoning" ? "bg-blue-400" : "bg-primary animate-pulse"}`} />
+                                    <span>{activity.label}</span>
+                                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-primary/20 bg-primary/5 text-primary-foreground/70 font-bold uppercase tracking-wider transform scale-90 group-open:rotate-180 transition-transform">
+                                      {activity.type === "reasoning" ? "Thought" : "Action"}
+                                    </span>
+                                  </summary>
+                                  <pre className="mt-3 overflow-x-auto rounded bg-background/50 p-2 font-mono text-muted-foreground leading-relaxed">
+                                    {activity.payload}
+                                  </pre>
+                                </details>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <p className="whitespace-pre-wrap">{content}</p>
@@ -174,6 +192,12 @@ export function ChatShell() {
                   </Message>
                 );
               })}
+              {status === "streaming" && messages[messages.length - 1]?.role !== "assistant" && (
+                <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground animate-pulse">
+                  <Bot className="size-3" />
+                  <span>Thinking...</span>
+                </div>
+              )}
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>

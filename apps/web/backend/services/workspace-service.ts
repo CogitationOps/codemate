@@ -1,6 +1,6 @@
 import { Redis } from "@upstash/redis";
+import { tasks } from "@trigger.dev/sdk/v3";
 import { parseRepoRef } from "./github";
-import { repoIngestTask } from "../../../../trigger/repoIngest";
 import { Workspace } from "../types";
 
 const WORKSPACE_INDEX_KEY = "workspace:ids";
@@ -36,9 +36,9 @@ export async function createWorkspace(name: string, repoUrl: string): Promise<Wo
   await redis.set(`${WORKSPACE_KEY_PREFIX}${workspaceId}`, workspace);
   await redis.zadd(WORKSPACE_INDEX_KEY, { score: now, member: workspaceId });
 
-  // 2. Trigger async ingest
-  // Using the Trigger.dev task directly
-  await repoIngestTask.trigger({
+  // 2. Trigger async ingest via name to avoid Edge runtime SDK import issues
+  // We use the string "repo_ingest" to avoid importing the task definition (and its heavy deps) into Edge
+  await tasks.trigger("repo_ingest", {
     repo: repoUrl,
     workspaceId: workspaceId,
   });
