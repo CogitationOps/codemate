@@ -2,6 +2,7 @@ import { openai } from "@ai-sdk/openai";
 import { convertToModelMessages, streamText, type UIMessage } from "ai";
 
 export const maxDuration = 30;
+export const runtime = "edge";
 
 export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json();
